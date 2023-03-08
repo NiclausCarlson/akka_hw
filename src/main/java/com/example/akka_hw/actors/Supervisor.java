@@ -2,10 +2,14 @@ package com.example.akka_hw.actors;
 
 import akka.actor.*;
 import akka.japi.pf.DeciderBuilder;
-import com.example.akka_hw.stub_server.Bing;
-import com.example.akka_hw.stub_server.Google;
-import com.example.akka_hw.stub_server.Yandex;
+import com.example.akka_hw.parser.SimpleRequestParser;
+import com.example.akka_hw.stub_server.*;
 import scala.Option;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import static com.example.akka_hw.actors.Messages.StubServerType.*;
 
 public class Supervisor {
     private static final int kReceiveTimeout = 50;
@@ -28,7 +32,12 @@ public class Supervisor {
         }
     }
 
-    public class ChildActor extends UntypedActor {
+    public class ChildActor<T extends StubServerBase> extends UntypedActor {
+        private T stubServer;
+
+        public ChildActor(T stubServer) {
+            this.stubServer = stubServer;
+        }
 
         @Override
         public void postStop() {
@@ -48,7 +57,9 @@ public class Supervisor {
         @Override
         public void onReceive(Object message) throws Throwable {
             if (message instanceof String) {
-                if (message.equals("restart")) {
+                if (message.equals("get")) {
+                    stubServer.get();
+                } else if (message.equals("restart")) {
                     throw new RestartException();
                 } else if (message.equals("stop")) {
                     throw new StopException();
@@ -62,8 +73,6 @@ public class Supervisor {
     }
 
     public class SupervisorImpl extends UntypedActor {
-        private int number = 0;
-
         @Override
         public SupervisorStrategy supervisorStrategy() {
             return new OneForOneStrategy(false, DeciderBuilder
@@ -75,40 +84,43 @@ public class Supervisor {
 
         @Override
         public void onReceive(Object message) throws Throwable {
-            if (message.equals("start")) {
-                String name = "child" + number++;
+            if (message instanceof Messages.StartMsg msg) {
+                String name = "child_" + msg.stubType.toString();
                 System.out.println("Create child: " + name);
-                getContext().actorOf(Props.create(ChildActor.class), name);
+                getContext().actorOf(Props.create(ChildActor.class, this.createStubServer(msg)), name);
+            }
+        }
+
+        private StubServerBase createStubServer(final Messages.StartMsg msg) {
+            if (msg.stubType == GOOGLE) {
+                return new Google(msg.predicates, msg.delay);
+            } else if (msg.stubType == YANDEX) {
+                return new Yandex(msg.predicates, msg.delay);
+            } else {
+                return new Bing(msg.predicates, msg.delay);
             }
         }
     }
 
-    public Supervisor() {
+    private ActorRef parent;
+    private List<String> child = new ArrayList<>();
+
+    public Supervisor(final String request, final int delay_1, final int delay_2, final int delay_3) {
+        var parsedRequest = SimpleRequestParser.parse(request);
         ActorSystem system = ActorSystem.create("MySystem");
         // Create actor
-        ActorRef parent = system.actorOf(
+        this.parent = system.actorOf(
                 Props.create(SupervisorImpl.class), "parent");
 
-        parent.tell("start", ActorRef.noSender());
-        parent.tell("start", ActorRef.noSender());
-        parent.tell("start", ActorRef.noSender());
-
-        for (int i = 0; i < 3; i++) {
-            system.actorSelection("user/parent/child" + i).tell("Hello!", ActorRef.noSender());
-        }
-
-        // restart and send new message for child1
-        system.actorSelection("user/parent/child1").tell("restart", ActorRef.noSender());
-        system.actorSelection("user/parent/child1").tell("Hello2", ActorRef.noSender());
-
-        // stop and send new message for child1 (message wouldn't be received)
-        system.actorSelection("user/parent/child1").tell("escalate", ActorRef.noSender());
-        system.actorSelection("user/parent/child1").tell("Hello3", ActorRef.noSender());
-
-        system.actorSelection("user/parent/child2").tell("Hello3", ActorRef.noSender());
+        parent.tell(new Messages.StartMsg(GOOGLE, parsedRequest, delay_1), ActorRef.noSender());
+        parent.tell(new Messages.StartMsg(YANDEX, parsedRequest, delay_2), ActorRef.noSender());
+        parent.tell(new Messages.StartMsg(BING, parsedRequest, delay_3), ActorRef.noSender());
+        child.add("child_" + GOOGLE);
+        child.add("child_" + YANDEX);
+        child.add("child_" + BING);
     }
 
-    public Supervisor(final Yandex yandex, final Google google, final Bing bing) {
+    public List<Response> get() {
+        return null;
     }
-
 }
