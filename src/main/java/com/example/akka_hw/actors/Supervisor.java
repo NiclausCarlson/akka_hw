@@ -2,17 +2,23 @@ package com.example.akka_hw.actors;
 
 import akka.actor.*;
 import akka.japi.pf.DeciderBuilder;
+import akka.util.Timeout;
 import com.example.akka_hw.parser.SimpleRequestParser;
 import com.example.akka_hw.stub_server.*;
 import scala.Option;
+import scala.concurrent.Future;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+
+import static akka.pattern.Patterns.ask;
 
 import static com.example.akka_hw.actors.Messages.StubServerType.*;
 
 public class Supervisor {
-    private static final int kReceiveTimeout = 50;
 
     public static class RestartException extends RuntimeException {
         public RestartException() {
@@ -32,8 +38,8 @@ public class Supervisor {
         }
     }
 
-    public class ChildActor<T extends StubServerBase> extends UntypedActor {
-        private T stubServer;
+    public static class ChildActor<T extends StubServerBase> extends UntypedActor {
+        private final T stubServer;
 
         public ChildActor(T stubServer) {
             this.stubServer = stubServer;
@@ -58,7 +64,7 @@ public class Supervisor {
         public void onReceive(Object message) throws Throwable {
             if (message instanceof String) {
                 if (message.equals("get")) {
-                    stubServer.get();
+                    getSender().tell(stubServer.get(), getSelf());
                 } else if (message.equals("restart")) {
                     throw new RestartException();
                 } else if (message.equals("stop")) {
@@ -67,12 +73,16 @@ public class Supervisor {
                     throw new EscalateException();
                 } else {
                     System.out.println(self().path() + " got message: " + message);
+                    var ex = new RuntimeException("Got unsupported command");
+                    getSender().tell(new Status.Failure(ex), getSelf());
+                    throw ex;
                 }
             }
         }
     }
 
-    public class SupervisorImpl extends UntypedActor {
+    public static class SupervisorImpl extends UntypedActor {
+
         @Override
         public SupervisorStrategy supervisorStrategy() {
             return new OneForOneStrategy(false, DeciderBuilder
@@ -102,25 +112,37 @@ public class Supervisor {
         }
     }
 
-    private ActorRef parent;
-    private List<String> child = new ArrayList<>();
+    private static final Timeout kTimeout = new Timeout(50, TimeUnit.MILLISECONDS);
+    private final ActorRef ref;
+    private final ActorSystem system;
+    private final List<Future<Object>> tasks = new ArrayList<>();
 
     public Supervisor(final String request, final int delay_1, final int delay_2, final int delay_3) {
         var parsedRequest = SimpleRequestParser.parse(request);
-        ActorSystem system = ActorSystem.create("MySystem");
-        // Create actor
-        this.parent = system.actorOf(
+        this.system = ActorSystem.create("MySystem");
+        this.ref = system.actorOf(
                 Props.create(SupervisorImpl.class), "parent");
-
-        parent.tell(new Messages.StartMsg(GOOGLE, parsedRequest, delay_1), ActorRef.noSender());
-        parent.tell(new Messages.StartMsg(YANDEX, parsedRequest, delay_2), ActorRef.noSender());
-        parent.tell(new Messages.StartMsg(BING, parsedRequest, delay_3), ActorRef.noSender());
-        child.add("child_" + GOOGLE);
-        child.add("child_" + YANDEX);
-        child.add("child_" + BING);
+        tasks.add(ask(ref, new Messages.StartMsg(YANDEX, parsedRequest, delay_1), kTimeout));
+        tasks.add(ask(ref, new Messages.StartMsg(GOOGLE, parsedRequest, delay_2), kTimeout));
+        tasks.add(ask(ref, new Messages.StartMsg(BING, parsedRequest, delay_3), kTimeout));
     }
 
     public List<Response> get() {
-        return null;
+        List<Response> result = new ArrayList<>();
+        for (var task : tasks) {
+            var res_opt = task.value();
+            if (res_opt.nonEmpty()) {
+                var res = res_opt.get();
+                if (res.isSuccess()) {
+                    result.add((Response) (res.get()));
+                } else {
+                    System.err.println("Task is failure");
+                }
+            } else {
+                System.err.println("Task is empty");
+            }
+        }
+        system.stop(ref);
+        return result;
     }
 }
