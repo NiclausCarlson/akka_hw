@@ -6,6 +6,7 @@ import akka.util.Timeout;
 import com.example.akka_hw.parser.SimpleRequestParser;
 import com.example.akka_hw.stub_server.*;
 import scala.Option;
+import scala.concurrent.Await;
 import scala.concurrent.Future;
 
 import java.time.Duration;
@@ -82,6 +83,7 @@ public class Supervisor {
     }
 
     public static class SupervisorImpl extends UntypedActor {
+        private final List<Future<Object>> tasks = new ArrayList<>();
 
         @Override
         public SupervisorStrategy supervisorStrategy() {
@@ -97,8 +99,32 @@ public class Supervisor {
             if (message instanceof Messages.StartMsg msg) {
                 String name = "child_" + msg.stubType.toString();
                 System.out.println("Create child: " + name);
-                getContext().actorOf(Props.create(ChildActor.class, this.createStubServer(msg)), name);
+                var ref = getContext().actorOf(Props.create(ChildActor.class, this.createStubServer(msg)), name);
+                tasks.add(ask(ref, "get", kTimeout));
+                return;
+            } else if (message instanceof String msg) {
+                List<Response> result = new ArrayList<>();
+                if (msg.equals("get")) {
+                    for (var task : tasks) {
+                        try {
+                            var res = Await.result(task, kTimeout.duration());
+                            if (res instanceof Response response) {
+                                result.add(response);
+                            } else {
+                                System.err.println("Failed to get response: " + res.toString());
+                            }
+                        } catch (Exception ex) {
+                            System.err.println("Failed to get response: " + ex);
+                        }
+                    }
+                    getSender().tell(result, getSelf());
+                    return;
+                }
             }
+            System.out.println(self().path() + " got message: " + message);
+            var ex = new RuntimeException("Got unsupported command");
+            getSender().tell(new Status.Failure(ex), getSelf());
+            throw ex;
         }
 
         private StubServerBase createStubServer(final Messages.StartMsg msg) {
@@ -112,7 +138,7 @@ public class Supervisor {
         }
     }
 
-    private static final Timeout kTimeout = new Timeout(50, TimeUnit.MILLISECONDS);
+    private static final Timeout kTimeout = new Timeout(100, TimeUnit.MILLISECONDS);
     private final ActorRef ref;
     private final ActorSystem system;
     private final List<Future<Object>> tasks = new ArrayList<>();
@@ -122,27 +148,20 @@ public class Supervisor {
         this.system = ActorSystem.create("MySystem");
         this.ref = system.actorOf(
                 Props.create(SupervisorImpl.class), "parent");
-        tasks.add(ask(ref, new Messages.StartMsg(YANDEX, parsedRequest, delay_1), kTimeout));
-        tasks.add(ask(ref, new Messages.StartMsg(GOOGLE, parsedRequest, delay_2), kTimeout));
-        tasks.add(ask(ref, new Messages.StartMsg(BING, parsedRequest, delay_3), kTimeout));
+        ref.tell(new Messages.StartMsg(YANDEX, parsedRequest, delay_1), ActorRef.noSender());
+        ref.tell(new Messages.StartMsg(GOOGLE, parsedRequest, delay_2), ActorRef.noSender());
+        ref.tell(new Messages.StartMsg(BING, parsedRequest, delay_3), ActorRef.noSender());
     }
 
     public List<Response> get() {
-        List<Response> result = new ArrayList<>();
-        for (var task : tasks) {
-            var res_opt = task.value();
-            if (res_opt.nonEmpty()) {
-                var res = res_opt.get();
-                if (res.isSuccess()) {
-                    result.add((Response) (res.get()));
-                } else {
-                    System.err.println("Task is failure");
-                }
-            } else {
-                System.err.println("Task is empty");
-            }
+        try {
+            var res = ask(ref, "get", kTimeout);
+            var result = (ArrayList<Response>) Await.result(res, kTimeout.duration());
+            system.stop(ref);
+            return result;
+        } catch (Exception ex) {
+            System.err.println("Can't get response: " + ex);
+            return new ArrayList<>();
         }
-        system.stop(ref);
-        return result;
     }
 }

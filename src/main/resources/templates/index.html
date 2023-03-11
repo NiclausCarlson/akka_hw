@@ -13,7 +13,7 @@
         </tr>
         <tr>
             <td><label>
-                <input type="text" th:field="*{request}"/>
+                <input type="text" th:name="request"/>
             </label></td>
         </tr>
         <tr>
@@ -35,7 +35,7 @@
             <td th:text="${res.getSearcherName()}"></td>
         </tr>
         <tr>
-            <td th:text="${res.getResponse()}"></td>
+            <td th:text="${res.getResponse(5)}"></td>
         </tr>
     </th:block>
 </table>

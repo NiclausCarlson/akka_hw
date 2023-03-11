@@ -21,7 +21,7 @@ public class Response {
         return searcherName;
     }
 
-    public List<String> getResponse() {
-        return response;
+    public List<String> getResponse(int elemsCount) {
+        return response.subList(0, Math.min(elemsCount + 1, response.size()));
     }
 }
