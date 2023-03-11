@@ -3,11 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <title>Tyndex</title>
+    <link rel="stylesheet" type="text/css" href="/style.css">
 </head>
 <body>
 
 <form th:string="${request}" method="POST" action="/get-result">
-    <table class="add_task">
+    <table class="find">
         <tr>
             <th colspan="2">Nothing will be found</th>
         </tr>
@@ -18,23 +19,20 @@
         </tr>
         <tr>
             <th colspan="2">
-                <input type="submit" value="add">
+                <input type="submit" value="find">
             </th>
         </tr>
     </table>
 </form>
 
-<table class="Aggregation">
+<table class="aggregation">
     <tr>
         <th>From</th>
         <th>Result</th>
-        <th></th>
     </tr>
     <th:block th:each="res : ${aggregation}">
         <tr>
             <td th:text="${res.getSearcherName()}"></td>
-        </tr>
-        <tr>
             <td th:text="${res.getResponse(5)}"></td>
         </tr>
     </th:block>
