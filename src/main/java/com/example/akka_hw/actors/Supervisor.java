@@ -9,6 +9,7 @@ import scala.Option;
 import scala.concurrent.Await;
 import scala.concurrent.Future;
 
+import java.sql.Time;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -95,19 +96,19 @@ public class Supervisor {
         }
 
         @Override
-        public void onReceive(Object message) throws Throwable {
+        public void onReceive(Object message) {
             if (message instanceof Messages.StartMsg msg) {
                 String name = "child_" + msg.stubType.toString();
                 System.out.println("Create child: " + name);
                 var ref = getContext().actorOf(Props.create(ChildActor.class, this.createStubServer(msg)), name);
-                tasks.add(ask(ref, "get", kTimeout));
+                tasks.add(ask(ref, "get", kTimeoutFromChild));
                 return;
             } else if (message instanceof String msg) {
                 List<Response> result = new ArrayList<>();
                 if (msg.equals("get")) {
                     for (var task : tasks) {
                         try {
-                            var res = Await.result(task, kTimeout.duration());
+                            var res = Await.result(task, kTimeoutFromChild.duration());
                             if (res instanceof Response response) {
                                 result.add(response);
                             } else {
@@ -138,11 +139,10 @@ public class Supervisor {
         }
     }
 
-    private static final Timeout kTimeout = new Timeout(100, TimeUnit.MILLISECONDS);
+    private static final Timeout kTimeout = new Timeout( 300, TimeUnit.MILLISECONDS);
+    private static final Timeout kTimeoutFromChild = new Timeout( 100, TimeUnit.MILLISECONDS);
     private final ActorRef ref;
     private final ActorSystem system;
-    private final List<Future<Object>> tasks = new ArrayList<>();
-
     public Supervisor(final String request, final int delay_1, final int delay_2, final int delay_3) {
         var parsedRequest = SimpleRequestParser.parse(request);
         this.system = ActorSystem.create("MySystem");
