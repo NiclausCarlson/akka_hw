@@ -9,6 +9,7 @@ import java.util.function.Predicate;
 public class ResponseGenerator {
     private static final String kAllWords = "/words.txt";
     private static final int kResultCount = 100;
+    private static final List<String> words = readWords();
     private final List<Predicate<String>> filters;
 
     public ResponseGenerator(final List<Predicate<String>> filters) {
@@ -17,18 +18,13 @@ public class ResponseGenerator {
 
     public List<String> generate() {
         List<String> result = new ArrayList<>();
-        try (InputStream is = this.getClass().getResourceAsStream(kAllWords);
-             InputStreamReader isr = new InputStreamReader(is,
-                     StandardCharsets.UTF_8);
-             BufferedReader br = new BufferedReader(isr)) {
-            String line;
-            while ((line = br.readLine()) != null && result.size() < kResultCount) {
-                if (checkFilters(line)) {
-                    result.add(line);
-                }
+        for (var it : words) {
+            if (result.size() >= kResultCount) {
+                break;
             }
-        } catch (IOException e) {
-            throw new RuntimeException(e);
+            if (checkFilters(it)) {
+                result.add(it);
+            }
         }
         return result;
     }
@@ -45,4 +41,19 @@ public class ResponseGenerator {
         return false;
     }
 
+    private static List<String> readWords() {
+        List<String> result = new ArrayList<>();
+        try (InputStream is = ResponseGenerator.class.getResourceAsStream(kAllWords);
+             InputStreamReader isr = new InputStreamReader(is,
+                     StandardCharsets.UTF_8);
+             BufferedReader br = new BufferedReader(isr)) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                result.add(line);
+            }
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+        return result;
+    }
 }
